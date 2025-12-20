@@ -1,0 +1,110 @@
+name: "VM0 Image Build"
+description: "Build a custom VM0 image from a Dockerfile"
+author: "vm0-ai"
+branding:
+  icon: "box"
+  color: "purple"
+
+inputs:
+  working-directory:
+    description: "Working directory for running the build command"
+    required: false
+    default: "."
+  dockerfile:
+    description: "Path to Dockerfile (relative to working-directory)"
+    required: false
+    default: "Dockerfile"
+  name:
+    description: "Name for the image"
+    required: true
+  delete-existing:
+    description: "Delete existing image before building"
+    required: false
+    default: "false"
+  vm0-token:
+    description: "VM0 authentication token (use secrets.VM0_TOKEN)"
+    required: true
+  vm0-api-url:
+    description: "VM0 API URL"
+    required: false
+    default: "https://www.vm0.ai"
+  cli-version:
+    description: "@vm0/cli version to install"
+    required: false
+    default: "latest"
+
+outputs:
+  image-id:
+    description: "The image ID"
+    value: ${{ steps.build.outputs.image-id }}
+  name:
+    description: "The image name"
+    value: ${{ steps.build.outputs.name }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: "20"
+
+    - name: Install VM0 CLI
+      shell: bash
+      run: |
+        echo "Installing @vm0/cli@${{ inputs.cli-version }}..."
+        npm install -g @vm0/cli@${{ inputs.cli-version }}
+        echo "VM0 CLI installed: $(vm0 --version)"
+
+    - name: Build VM0 Image
+      id: build
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        VM0_TOKEN: ${{ inputs.vm0-token }}
+        VM0_API_URL: ${{ inputs.vm0-api-url }}
+      run: |
+        DOCKERFILE="${{ inputs.dockerfile }}"
+        IMAGE_NAME="${{ inputs.name }}"
+        DELETE_EXISTING="${{ inputs.delete-existing }}"
+
+        if [ ! -f "$DOCKERFILE" ]; then
+          echo "Error: Dockerfile not found: $DOCKERFILE"
+          exit 1
+        fi
+
+        echo "Building image '$IMAGE_NAME' from: $DOCKERFILE"
+        echo ""
+
+        # Build command arguments
+        BUILD_ARGS="-f $DOCKERFILE -n $IMAGE_NAME"
+
+        if [ "$DELETE_EXISTING" = "true" ]; then
+          BUILD_ARGS="$BUILD_ARGS --delete-existing"
+        fi
+
+        # Run vm0 image build and capture output
+        set +e
+        OUTPUT=$(vm0 image build $BUILD_ARGS 2>&1)
+        EXIT_CODE=$?
+        set -e
+
+        echo "$OUTPUT"
+
+        if [ $EXIT_CODE -ne 0 ]; then
+          echo ""
+          echo "Error: Failed to build image"
+          exit $EXIT_CODE
+        fi
+
+        # Parse outputs from CLI output
+        IMAGE_ID=$(echo "$OUTPUT" | grep -oP 'Image ID:\s*\K\S+' | head -1 || true)
+
+        # Set outputs
+        echo "name=$IMAGE_NAME" >> $GITHUB_OUTPUT
+        echo "image-id=$IMAGE_ID" >> $GITHUB_OUTPUT
+
+        echo ""
+        echo "=== Build Summary ==="
+        echo "Name: $IMAGE_NAME"
+        echo "Image ID: $IMAGE_ID"
