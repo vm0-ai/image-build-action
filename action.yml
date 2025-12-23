@@ -83,13 +83,18 @@ runs:
           BUILD_ARGS="$BUILD_ARGS --delete-existing"
         fi
 
-        # Run vm0 image build and capture output
+        # Create temp file for capturing output
+        OUTPUT_FILE=$(mktemp)
+
+        # Run vm0 image build with tee for real-time output
         set +e
-        OUTPUT=$(vm0 image build $BUILD_ARGS 2>&1)
-        EXIT_CODE=$?
+        vm0 image build $BUILD_ARGS 2>&1 | tee "$OUTPUT_FILE"
+        EXIT_CODE=${PIPESTATUS[0]}
         set -e
 
-        echo "$OUTPUT"
+        # Read output from temp file for parsing
+        OUTPUT=$(cat "$OUTPUT_FILE")
+        rm -f "$OUTPUT_FILE"
 
         if [ $EXIT_CODE -ne 0 ]; then
           echo ""
